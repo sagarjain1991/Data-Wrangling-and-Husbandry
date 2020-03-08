@@ -1,0 +1,114 @@
+---
+title: "HW4"
+author: "Sagar Jain"
+date: "25 February 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##HW4
+
+```{r import library}
+
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+
+```
+
+```{r import dataset}
+phd_by_field <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-02-19/phd_by_field.csv')
+
+```
+
+```{r a}
+
+
+phd_by_majorfield_rsquare_value <- phd_by_field %>% split(.$major_field) %>% 
+  map(~lm(n_phds ~ year + field, data = .)) %>% 
+  map(summary) %>% map("r.squared") 
+
+
+
+phd_by_field %>% split(.$major_field) %>% 
+  map(~ lm(n_phds ~ year + field, data = .)) %>% 
+  map(summary) %>% 
+  map_dbl("r.squared") %>% 
+  tibble(major_field = names(.), slope = .) %>%
+  left_join(.,phd_by_field) %>%
+  select(broad_field,slope) %>%
+  ggplot(aes(broad_field, slope)) + geom_boxplot(color = 'dodgerblue4', fill="red")
+
+
+```
+
+
+```{r b}
+############
+
+phd_by_field %>% select(field,year,n_phds) %>%
+  mutate(G_rank = min_rank(desc(n_phds))) %>%
+  arrange(year)
+
+#########
+
+
+phd_by_field_agg_year <- group_by(phd_by_field,major_field,field) %>% 
+summarise(agg_phds = sum(n_phds,na.rm=TRUE))
+  
+#sum(phd_by_field_agg_year$agg_phds)
+phd_by_field_agg_year %>% 
+  mutate(Rank = min_rank(desc(agg_phds))) %>%
+  arrange(major_field,Rank)
+
+#########
+
+phd_by_field_agg_field <- group_by(phd_by_field,broad_field,year) %>% 
+  summarise(agg_phds = sum(n_phds,na.rm=TRUE))
+
+#sum(phd_by_field_agg_field$agg_phds)
+phd_by_field_agg_field %>% 
+  mutate(Rank = min_rank(desc(agg_phds))) %>%
+  arrange(broad_field,Rank)
+
+
+
+```
+
+```{r c}
+
+phd_by_field %>% select(field,year,n_phds) %>% arrange(field) %>%
+  filter( n_phds > lag(n_phds))
+
+##############
+
+phd_by_field %>% select(broad_field,n_phds) %>% arrange(broad_field) %>% split(.$broad_field) %>%
+map(~quantile(.$n_phds,na.rm = TRUE))
+
+
+```
+
+```{r d}
+
+signal_to_noise <- function(broad_name){
+  
+  if(broad_name %in% unique(phd_by_field$broad_field)){
+    updated_dataframe <- phd_by_field %>% filter(phd_by_field$broad_field == broad_name)
+    sd_value <- sd(updated_dataframe$n_phds,na.rm = TRUE)
+    mean_value <- mean(updated_dataframe$n_phds,na.rm = TRUE)
+    
+    return (mean_value/sd_value)
+  }
+  
+  else
+    print("error message: Please enter a valid entry")
+  
+}
+
+signal_to_noise("Life sciences")
+
+
+```

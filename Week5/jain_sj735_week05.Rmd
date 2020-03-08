@@ -1,0 +1,229 @@
+---
+title: "Homework 5"
+author: "Sagar Jain"
+date: "March 2, 2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+library(dplyr)
+library(broom)
+```
+----   
+
+### Exercise 1    
+
+
+----   
+
+
+Downloaded the dataset.
+
+```{r prelim_2, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+fed_rd <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-02-12/fed_r_d_spending.csv")
+```   
+
+
+#### Part a) 
+##### _Question:_
+
+Reformat this data with a separate variable called rd_budget_frac for the rd_budget as a fraction of total_outlays and two additional variables with upper and lower confidence bounds for rd_budget_frac from the linear model:
+__rd_budget_frac ~ department + year__
+
+
+----   
+
+##### _Answer:_
+
+At First, I created the variable __rd_budget_frac__.   
+Then, I did the linear model, and after that, I calculate the confidence intervals.   
+Finally, I left join them with the original dataset.   
+
+----    
+
+
+
+```{r part_2a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+fed_rd.new <- fed_rd %>%
+  mutate(rd_budget_frac = rd_budget/total_outlays)
+fit <- lm(rd_budget_frac ~ department + year, fed_rd.new)
+conf.int <- augment(fit) %>%
+  mutate(fit = .fitted) %>%
+  mutate(upper = .fitted + 1.96 * .se.fit) %>%
+  mutate(lower = .fitted + 1.96 * .se.fit) %>%
+  select(rd_budget_frac, department, year, fit, upper, lower)
+fed_rd.new <- fed_rd.new %>%
+  left_join(.,conf.int)
+  
+head(fed_rd.new)
+```
+
+
+---   
+
+#### Part b) 
+##### _Question:_
+Create four plots showing rd_budget_frac (along with the upper and lower confidence bounds from (a)) as a function of year for NASA, NSF, DHS, and DOD. (Be sure your figure looks polished.) Comment on any patterns you find.
+
+----   
+
+##### _Answer:_
+I created a function to plot all 4 plots, since it would be repeating lines of codes. Then, I just called the function foreach department.      
+    
+----    
+
+
+
+```{r part_2b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+ploting <- function(department){
+  
+  coefs.plot=fed_rd.new[which(fed_rd.new$department==department),]
+  
+  ggplot(coefs.plot, aes(year, rd_budget_frac))+
+    geom_point()+
+    geom_line(aes(y=lower), color = "red", linetype = "dashed")+
+    geom_line(aes(y=upper), color = "red", linetype = "dashed")+
+    geom_smooth()
+}
+ploting("NASA")
+ploting("NSF")
+ploting("DHS")
+ploting("DOD")
+```
+
+**_Comments:_**
+Except for _DHS_, the rest have a _descending relation_ through the years, _DHS_ is a _flat horizontal line until 2001_, approximately.   
+
+
+
+----
+
+### Exercise 3    
+
+-----
+
+Table 16 of the file UN MigrantStockByOriginAndDestination 2015.xlsx (in the Week 5 Canvas folder) shows migration from one country to another in 2015. By eliminating the rows and columns that don't correspond to countries and then converting to a tidy dataset using gather() (i.e., a data frame with three columns: one for country of origin, one for country of destination, and the third indicating the number of people who immigrated from one country to the other), find
+
+----   
+
+
+First, I upload the file and clean the dataset.      
+    
+    
+----    
+
+
+
+
+
+```{r prelim_3, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+getwd()
+
+untidy_migrant <- readxl::read_excel("UN_MigrantStockByOriginAndDestination_2015.xlsx", sheet = "Table 16", skip = 15)
+head(untidy_migrant)
+
+untidy_migrant <- untidy_migrant %>%
+  rename(to_country = ...2)
+
+untidy_migrant <- untidy_migrant %>%
+  rename(country_code = ...4)
+
+untidy_migrant <- filter(untidy_migrant,country_code < 900)
+head(untidy_migrant)
+```   
+    
+    
+    
+---   
+
+#### Part a) 
+##### _Question:_   
+
+The top five countries from which people migrate to Canada.    
+
+
+----   
+
+##### _Answer:_    
+
+
+After cleaning the dataset, is easy to use _gather()_ to get the answer to this question.
+ 
+ 
+ 
+ 
+
+```{r part_3a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+migrate_to_canada <- untidy_migrant[which(untidy_migrant$to_country == "Canada"),]
+migrate_to_canada <- migrate_to_canada %>% gather(`Afghanistan`:`Zimbabwe`, key = "from_country", value = "count")
+
+migrate_to_canada_cleaned <- select(migrate_to_canada,c(to_country,
+                           from_country,count))
+
+migrate_to_canada_cleaned %>%
+  arrange(desc(count)) %>%
+  head(5)
+
+```    
+
+
+
+#### Part b) 
+##### _Question:_   
+
+The top five countries to which people migrate from Canada.   
+
+
+----   
+
+##### _Answer:_    
+
+
+Using _gather()_ again, I counted the countries from Canada.   
+   
+    
+----    
+
+
+```{r part_3b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+migrate_from_canada <- untidy_migrant %>%filter(country_code < 900)
+head(arrange(migrate_from_canada, desc(Canada)), n = 5)$to_country
+```   
+
+
+
+#### Part c) 
+##### _Question:_   
+
+The top 10 migration pairs of countries.   
+
+
+----   
+
+##### _Answer:_    
+
+
+First, I keep only the countries and exclude regions.   
+Then, I just looked for the top 10 pairs.       
+    
+    
+----    
+
+  
+
+```{r part_3c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+migration_pairs <- untidy_migrant %>%
+  gather(`Afghanistan`:`Zimbabwe`, key = "from_country", value = "count") %>% arrange(desc(count))
+#Excluding the unnecessary columns
+drop_columns <- c("Total","Other North", "Other South", "Country_code", "..1", "..3", "..5")
+pairs_top_10 <- migration_pairs[ , !(names(migration_pairs) %in% drop_columns)]
+pairs_top_10 %>%
+  select(to_country, from_country) %>%
+  head(10)
+```   
