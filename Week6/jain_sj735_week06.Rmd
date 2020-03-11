@@ -1,0 +1,442 @@
+---
+title: "Homework 6"
+author: "Sagar Jain"
+date: "March 10, 2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(kableExtra)
+library(tidytext)
+library(wordcloud)
+library(dplyr)
+library(rvest)
+library(lubridate)
+library(stringr)
+```
+
+First, I download the dataset.
+
+```{r prelim_1, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+library(gutenbergr)
+books <- gutenberg_download(gutenberg_id = c(11, 1400),meta_fields = "title")
+```
+
+-----
+
+#### Part a) 
+##### _Question:_   
+
+
+Find the 10 most common non-stop-words in Great Expectations. Create a world cloud of them.  
+
+----
+
+##### _Answer:_
+
+First, I check how the titles are written. Then, I filter only _Great Expectations_, to only keep that part of the data.   
+After that, I create the tibble to get a better structure.   
+Next, I unnest the tokens to tidy the text.   
+Then, I __anti_join__ with the __stop words__, in order to avoid them in the counting.   
+Finally, I do the __word cloud__ to show the most used words.     
+
+----    
+
+
+```{r part_1a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+books %>% distinct(title)
+great_expectations <- books %>%
+  filter(title == 'Great Expectations') 
+great_expectations.tbl <- 
+  tibble(text = great_expectations$text) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, "(?i)^chapter [0-9ivxlc]")))
+tidy_great_expectations <- great_expectations.tbl %>%
+  unnest_tokens(word, text)
+tidy_great_expectations %>%
+  anti_join(stop_words) %>%
+  count(word, sort = TRUE) %>%
+  head(10)
+tidy_great_expectations %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100, colors=brewer.pal(8, "Dark2")))
+```
+
+
+
+
+----   
+
+#### Part b) 
+##### _Question:_
+
+Find the 10 most common bigrams in _Great Expectations_ that do not include stop words.   
+
+
+----   
+
+##### _Answer:_
+
+First, I get the bigrams in the text.    
+Then, I separate the words into two columns.   
+After, I filter those words, in both columns, that are in the stop words.    
+Finally, I list the 10 most used bigrams.   
+
+----    
+
+
+
+```{r part_1b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+tidy_great_expectations_bigram <- great_expectations.tbl %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+great_expectations_bigrams_sep <- tidy_great_expectations_bigram %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+great_expectations_bigrams_filtered <- great_expectations_bigrams_sep %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+na.omit(great_expectations_bigrams_filtered %>% 
+  mutate(bigram = str_c(word1, ' ', word2)) %>%
+  count(bigram, sort = TRUE)) %>%
+  head(10)
+```
+
+
+    
+----   
+
+In this case I tidy both books first.    
+Then, I join them with the sentiments list in the funcion __get_sentiments__.   
+Finally, I plot the sentiments in both books.   
+
+----   
+
+
+
+```{r part_1c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+tidy_books <- books %>%
+  group_by(title) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]", ignore_case = TRUE)))) %>%
+  ungroup()  %>%
+  unnest_tokens(word, text)
+books_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(title, index = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+ggplot(books_sentiment, aes(index, sentiment, fill = title)) +
+  geom_bar(alpha = 0.8, stat = "identity", show.legend = FALSE) +
+  facet_wrap(~title, ncol = 3, scales = "free_x") + 
+  theme(legend.position = "none") +
+  geom_smooth(span = .15)
+```
+
+
+----  
+
+
+
+### Exercise 2   
+
+
+-----
+
+#### Part b) 
+##### _Question:_   
+
+I have choosen to implement _part b)_:   
+
+The weather forecast for next week from the closest (small) airport to Piscataway can be found at https://weather.com/weather/hourbyhour/l/USNJ0524:1:US. Download (and clean) the data using the code forecast <- "https://weather.com/weather/hourbyhour/l/USNJ0524:1:US" %>% read_html() %>% html_table(fill = TRUE)
+i. Create three separate plots (3  1 layout using facet_wrap()) of the time of day on the x-axis against temperature, humidity, and windspeed for the day on the y-axis (using points connected by lines for each), coloring the point by the chance of precipitation. Adjust the vertical scales accordingly.
+
+
+----
+
+
+First, I run the _cleaner functions_, and read the html from __www.weather.com__.    
+After reading the html, I put it on a table in order to proceed.   
+
+
+```{r prelim_2a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+cleaner <- function(x){
+  str_replace_all(x, " \\([0-9]+\\)|(\n)", "")
+}
+cleaner <- function(x){
+  str_replace_all(x, "(^[ \t]+|[ \t]+$)|(\n)", "")
+}
+weather <- "https://weather.com/weather/hourbyhour/l/USNJ0524:1:US"
+forecast <- weather %>%
+  read_html() %>% 
+  html_table(fill = TRUE)
+length(forecast)
+class(forecast)
+class(forecast[[1]])
+weather.df <- forecast[[1]]
+weather.df %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+----    
+
+
+Looking at the columns, they are misplaced. Next, I have shifted the data under the correct variable name.   
+
+
+-----   
+
+```{r prelim_2b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+# Drop the first column
+weather.df <- weather.df[,-1]
+length(weather.df)
+names(weather.df)[7] <- "Wind_"
+weather.df <- weather.df %>%
+  rename(Time = Description) %>%
+  rename(Description = Temp) %>%
+  rename(Temp = Feels) %>%
+  rename(Feels = Precip) %>%
+  rename(Precip = Humidity) %>%
+  rename(Humidity = Wind) %>%
+  rename(Wind = Wind_)
+```
+
+----    
+
+After this correction, I began to tidy all the data.   
+
+----
+
+```{r prelim2c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+weather.df$Time <- weather.df$Time %>% 
+  str_replace_all("am", "am - ")  %>% 
+  str_replace_all("pm", "pm - ")
+weather.df <- weather.df %>% separate(Time, c("Time", "Day"), sep = "-") %>% map_df(cleaner)
+```
+
+
+Fixing the time, precipitation and humidity percentage. In Precipitation case, I calculate it as a numerical value 
+(from 0 to 1), so when using it on the plot, it keeps it in order. I put Humidity in a percentage format (0 to 100),
+so when using it on the plot is correctly represented.   
+
+```{r prelim2d, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+weather.clean <- weather.df %>% 
+  mutate(Time = parse_time(Time, '%I:%M %p')) %>%
+  mutate(Precip = as.numeric(sub("%", "", Precip))/100) %>%
+  mutate(Humidity = as.numeric(sub("%", "", Humidity)))
+weather.clean$Temp <- weather.clean$Temp %>% 
+  str_replace_all("°", "") %>%
+  as.numeric()
+```
+
+    
+    
+Next, because I am checking the data today, if the day is not the same as today's, then it means that it corresponds to tomorrow. After that, I will correct the wind data.      
+
+
+```{r prelim2e, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+weather.clean1 <- weather.clean %>% 
+  filter(wday(today(tzone = "EST"), label=TRUE) == weather.clean$Day) %>%
+  mutate("Datetime" = as_datetime(paste(today(tzone = "EST"), Time, sep= ' '), tz = "EST"))
+weather.clean2 <- weather.clean %>% 
+  filter(wday(today(tzone = "EST"), label=TRUE) != weather.clean$Day) %>%
+  mutate("Datetime" = as_datetime(paste(today(tzone = "EST") + 1, Time, sep= ' '), tz = "EST"))
+weather.clean <- rbind(weather.clean1,weather.clean2)
+weather.clean$Datetime <- format(weather.clean$Datetime,format='%Y-%m-%d %H:%M')
+# Tidyng wind
+weather.clean <- weather.clean %>% separate(Wind, c("Wind_Direction", "Wind_Speed", "Wind_measurement"), sep = " ") %>% map_df(cleaner)
+weather.clean <- weather.clean %>% mutate(Wind_Speed = as.numeric(Wind_Speed))
+head(weather.clean) %>%
+  kable() %>%
+  kable_styling()
+```
+
+Now I have all the data tidy to answer the question.   
+
+
+##### _Answer:_
+
+```{r part2b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+weather.plot <- gather(weather.clean, key="measure", value="value", c("Temp",  "Humidity",  "Wind_Speed"))
+weather.plot <- weather.plot %>% 
+  mutate(value = as.numeric(value))
+ggplot(weather.plot, aes(Datetime, value, group = 1)) +
+  geom_line(color = "dodgerblue4") + geom_point(aes(color=Precip)) + 
+  ggtitle("Humidity, Temperature and Wind vs Time of the day") + 
+  facet_wrap(~ measure, ncol = 1, scales = "free", strip.position = "left", 
+             labeller = labeller( measure = c(Temp = "Temp. (ºF)", Humidity = "Humidity (%)", "Wind_Speed" = "Wind (mph)"))) +
+  ylab(NULL) +
+  xlab("Time of the day") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_color_brewer(palette = "Dark2")
+```
+
+
+
+
+
+
+----   
+
+### Exercise 3    
+
+----   
+
+
+Using the code from week6.R on Canvas, extract the rank, views, length, and post date of each video on Youtube's trending page https://www.youtube.com/feed/trending. Call the rank rank and the number of views views.   
+
+
+----   
+
+
+First, download the data from  __youtube.com__.    
+After reading the html, I put it on a table in order to proceed.   
+
+
+```{r prelim_3a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube <- "https://www.youtube.com/feed/trending" %>%
+  read_html() %>% html_nodes("div") %>% 
+  html_text()
+```   
+
+----   
+
+After downloading the data, I start to tidy it.   
+
+
+```{r prelim_3b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.clean <- youtube[2] %>% str_extract_all("(?!= Duration).*(?=views)") %>% unlist()
+youtube.clean <- tibble(text = youtube.clean)
+```
+
+First, I separate the title from the rest of the string. Then, I take the minutes, seconds and views on separate steps.   
+
+```{r prelim_3c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.clean <- youtube.clean %>% separate(text, c("title", "rest"), sep = "- Duration: ") %>%
+  subset(!is.na(rest)) %>%
+  mutate(title = str_trim(title))
+youtube.clean <- youtube.clean %>% separate(rest, c("minutes", "rest"), sep = ":")
+youtube.clean <- youtube.clean %>% separate(rest, c("seconds", "rest"), sep = "\\.", extra = "merge")
+youtube.clean <-  youtube.clean %>% separate(rest, c("rest", "views"), sep = " ago") %>%
+   subset(!is.na(views))
+youtube.clean$views <-
+  youtube.clean$views %>%
+  str_replace_all("[,]|[ ]", "") %>% as.numeric()
+```
+
+   
+Now that I have eliminated those videos that do not correspond to the ranking, I create a variable __rank__, assigning a ranking number to each video.   
+Then, I take the time unit from the rest of the original string, and I erased it from it.   
+Finally, I create a new variable that has the numeric value of how long has the video was posted.   
+
+
+```{r prelim_3d, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.clean <-  youtube.clean %>%
+  mutate(rank = 1:dim(youtube.clean)[1])
+youtube.clean$time_unit <- word(youtube.clean$rest, -1)
+youtube.clean$rest <- 
+  youtube.clean$rest %>% 
+  str_replace_all("(day)s?", "") %>%
+  str_replace_all("(week)s?", "") %>%
+  str_replace_all("(hour)s?", "") 
+youtube.clean <- youtube.clean %>%
+    mutate(rest = str_trim(rest))
+youtube.clean$time <-
+  youtube.clean$rest %>% str_extract_all("[0-9]+$")
+head(youtube.clean) %>%
+  kable() %>%
+  kable_styling()
+```
+
+#### Part a) 
+##### _Question:_
+
+Transform the post date so that it is in days. For example "1 week ago" would become "7", and "3 hours ago" would become "0.125". Call this new variable *post_date*.
+
+
+----   
+
+##### _Answer:_
+
+After having tidying the dataset, for this part I filter it by *time_unit*, so I can make the calculation for each, and then, as it was asked, I put it in a new variable called *post_date*. Then, I just put all the auxiliary dataset together.   
+
+----    
+
+
+
+```{r part_2a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.week <- youtube.clean %>%
+  filter (time_unit == "week" | time_unit == "weeks") %>%
+  mutate(post_date = (as.numeric(time)*7))
+youtube.hour <- youtube.clean %>%
+  filter (time_unit == "hour" | time_unit == "hours") %>%
+  mutate(post_date = (as.numeric(time)/24))
+youtube.day <- youtube.clean %>%
+  filter (time_unit == "day" | time_unit == "days") %>%
+  mutate(post_date = (as.numeric(time)))
+youtube.clean <- rbind(youtube.hour, youtube.day, youtube.week) %>%
+  arrange(rank)
+head(youtube.clean) %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+---   
+
+#### Part b) 
+##### _Question:_
+Transform the length so that it is in minutes. For example, "5:30" would become "5.5". Call this new variable *length*.
+
+----   
+
+##### _Answer:_
+In this case, because I have separate columns for _minutes_ and _seconds_, I just have to create a new variable called _length_, that has the result of the calculation asked between this two variables.        
+    
+    
+----    
+
+
+```{r part_2b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.clean <- youtube.clean %>% 
+  mutate(length = as.numeric(minutes) + as.numeric(seconds)/60)
+head(youtube.clean) %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+----
+
+#### Part c) 
+##### _Question:_
+Create a new variable *popularity* equal to views divided by *post_date*. Create a plot of _rank_ and _popularity_.
+
+----   
+
+##### _Answer:_
+
+First, I create the new variable _popularity_. Then, I create the plot, dividing the values of _popularity_ by _1,000,000_ so the numbers in the plot are clearer. I also, put labels with the video's title for the points that have more than 5 millons in popularity.     
+    
+----    
+
+
+```{r part_2c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+youtube.clean <- youtube.clean %>% 
+  mutate(popularity = views/post_date)
+ 
+head(youtube.clean) %>%
+  kable() %>%
+  kable_styling()
+ggplot(youtube.clean, aes(rank, popularity/1000000, label=title)) + 
+  geom_point() + 
+  geom_smooth() +
+  geom_label(aes(label=ifelse(popularity/1000000>5,as.character(title),NA)),hjust=0, vjust=0) +
+  ggtitle("Popularity vs Rank") +
+  xlab("Rank") +
+  ylab("Popularity (M)")
+```
