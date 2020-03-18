@@ -1,0 +1,280 @@
+---
+title: "midterm"
+author: "Sagar Jain"
+date: "15 March 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidytext)
+library(wordcloud)
+library(gutenbergr)
+library(lubridate)
+library(rvest)
+library(stringr)
+library(kableExtra)
+library(magrittr)
+library(tidyverse)
+```
+
+First, I download the dataset.
+
+```{r prelim_1, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+tickets <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-12-03/tickets.csv")
+
+head(tickets)
+```
+
+-----
+
+#### Part a) 
+##### _Question:_   
+
+
+What is the most common violation and its average fine? What are the least common
+violations and their respective fines?  
+
+----
+
+##### _Answer:_
+
+----    
+
+
+```{r part_1a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+tail(names(sort(table(tickets$violation_desc))), 1)
+
+Filtered_tickets_most <- tickets %>% filter(violation_desc == "METER EXPIRED CC") 
+
+mean(Filtered_tickets_most$fine,na.rm = FALSE)
+
+
+
+Filtered_tickets_least <- tickets %>% select(violation_desc,fine) %>% 
+  filter(violation_desc %in% c("+4HR IN LOADING ZONE","INTERSECTION   CC","PARK-TROLLEY STOP 23","PK OVER TIME LIM 17","PRK MTR IMPROPER 11","STOP PROHIBITED  CC","STOPPED SAFE ZONE CC"))
+
+kable(Filtered_tickets_least) %>% kable_styling()
+
+```
+
+
+
+----   
+
+#### Part b) 
+##### _Question:_
+
+For the most common violation, create a plot in ggplot of the number of violations for
+each month of 2017. What conclusions can you make?
+
+----   
+
+##### _Answer:_
+
+
+----    
+
+In the month of December there are less number of violations as compared to other months.
+Number of violations keep on increasing every month from January to May, then there is a decrement in number from June to July and then it increased in August which is highest among all months.
+
+```{r part_1b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+n_distinct(month(Filtered_tickets_most$issue_datetime))
+
+
+Filtered_tickets_most1 <- Filtered_tickets_most %>% mutate(month = month(issue_datetime))
+
+Filtered_tickets_most1 <- Filtered_tickets_most1 %>% group_by(month) %>% summarise(count = n())
+head(Filtered_tickets_most1)
+ggplot(data = Filtered_tickets_most1)+
+  geom_bar(mapping = aes(x=month,y=count),stat = "identity")+
+  ggtitle("Monthly trend") + 
+  xlab("Month") + 
+  ylab("Count")
+```
+
+
+    
+----   
+#### Part c) 
+##### _Question:_
+
+The zip code for downtown Philadelphia is 19103. Are you more likely to get a ticket
+here than elsewhere? To visualize this, create a graph of the number of violations for
+each zip code 
+
+----   
+
+
+
+```{r part_1c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+tickets_zipcode <- tickets %>% group_by(zip_code) %>% summarise(count = n()) %>% arrange(desc(count)) %>% na.omit()
+
+
+ggplot(data = tickets_zipcode)+
+  geom_bar(mapping = aes(x=zip_code,y=count),stat = "identity")+
+  ggtitle("No. of violations distribution across different zipcode") + 
+  xlab("Zipcode") + 
+  ylab("No. of violations")
+
+tickets_zipcode %>% select(zip_code,count) %>% filter(count ==max(count)) 
+
+#since the number of violations is highest for zipcode 19103, therefore we are very likely to get violations in Philadelphia then anywhere else
+```
+
+
+----  
+
+
+
+### Exercise 2   
+
+
+-----
+
+#### Part a) 
+##### _Question:_   
+
+Using the node .zn-body paragraph to extract the HTML content, create a data frame
+which lists the number of cases and deaths for each state. In particular, create a data
+frame with three columns, called state, cases, and deaths for all 51 states (including
+the District of Columbia). For example, you will need to extract numeric values of 1 and
+2, respectively, from the text 'including one death' and 'including two deaths'. Be sure
+to make your code reproducible, as this is a live link that is being updated frequently.
+
+
+----
+
+
+```{r prelim_2a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+covid19 <- "https://www.cnn.com/2020/03/03/health/us-coronavirus-cases-state-by-state/index.html" %>%
+  read_html() %>% html_nodes(".zn-body__paragraph") %>% 
+  html_text()
+
+
+covid19.clean <- tibble(text = covid19[7:59])
+
+
+covid19.clean <- covid19.clean %>% separate(text, c("State", "rest"), sep = ": ") %>%
+  subset(!is.na(rest)) %>%
+  mutate(State = str_trim(State))
+
+covid19.onlystates <- covid19.clean[-c(46,40),]
+
+covid19.onlystates.clean <- covid19.onlystates %>% separate(rest, c("Cases", "Deaths"), 
+                                                            sep = "including ",extra = "merge") 
+
+covid19.onlystates.clean <- covid19.onlystates.clean %>% separate(Cases, c("Cases", "unwanted"), sep = " ")
+
+covid19.onlystates.clean <- covid19.onlystates.clean[,-3]
+
+covid19.onlystates.clean <- covid19.onlystates.clean %>% separate(Deaths, c("Deaths", "unwanted"), sep = " ")
+
+covid19.onlystates.clean <- covid19.onlystates.clean[,-4]
+
+covid19.onlystates.clean$Deaths <- covid19.onlystates.clean$Deaths %>% 
+                                  str_replace_all("one", "1") %>%
+                                  str_replace_all("two", "2") %>%
+                                  str_replace_all("three", "3")%>%
+                                  str_replace_all("four", "4")%>%
+                                  str_replace_all("five", "5")%>%
+                                  str_replace_all("six", "6")%>%
+                                  str_replace_all("seven", "7")%>%
+                                  str_replace_all("eight", "8")%>%
+                                  str_replace_all("nine", "9")%>%
+                                  str_replace_all("ten", "10") 
+
+
+covid19.onlystates.clean[is.na(covid19.onlystates.clean)] <- 0
+head(covid19.onlystates.clean)
+
+```
+
+
+----    
+
+#### Part b) 
+##### _Question:_ 
+
+Show the table in your RMarkdown file by using the function knitr::kable().
+
+
+
+-----   
+
+```{r prelim_2b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+kable(covid19.onlystates.clean) %>%
+  kable_styling()
+```
+
+
+----   
+
+### Exercise 3    
+
+----   
+
+
+Taking advantage of the rvest package, turn the table at http://www.nature.com/articles/
+ng.3097/tables/3 into an R data frame.
+
+(a) Be sure to delete the rows "Genes with previous literature support (GRAIL)" and "New
+genes without previous evidence" (and don't do it by using the row number).   
+
+
+
+
+```{r prelim_3a, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+url <- 'http://www.nature.com/articles/ng.3097/tables/3'
+table <- url %>% read_html() %>%  html_nodes("table") %>% html_table()
+table <- table[[1]]
+head(table)
+
+#remove the excessive rows
+table <- filter(table, Gene!="Genes with previous literature support (GRAIL)" & Gene != "New genes without previous evidence")
+head(table)
+```   
+
+----   
+
+#### part b
+
+---
+(b) Be sure to convert the p-value column to numbers.
+
+```{r prelim_3b, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+#converting p-values to number by splitting the string apart, converting each value to number and then finally bringing it all together to put in the dataframe.
+table_temp <- table %>% separate('Prioritization P value', c("val", "rest"), sep = "×")
+table_temp <- table_temp %>% separate('rest', c("ten","pwr"), sep = "0")
+table_temp$pwr <- parse_number(table_temp$pwr)
+table_temp$pwr[is.na(table_temp$pwr)] <- 0
+table_temp$val <- parse_number(table_temp$val)
+table_temp <- table_temp %>% mutate('Prioritization P value'=val*(10^-pwr))
+table <- table_temp[-c(4, 5, 6)]
+head(table)
+```
+
+---
+
+### 3(c)
+The last column is shown in 3 rows in the journal, but most likely as one string in your
+table. Use regular expressions to insert semicolons (i.e., ";") between each of the original
+lines. For example,
+"PI3K cascade (REACTOME, P = 6.2 x 10-13); Chronic myeloid leukemia (KEGG, P
+= 1.6 x 10-12); Response to fibroblast growth factor stimulus (GO, P = 5.4 x 10-11)"
+
+---
+```{r prelim_3c, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+table$'Top-ranking reconstituted gene sets' <- table$'Top-ranking reconstituted gene sets' %>% str_replace_all( "[)]", ");") %>% substr(1,nchar(.)-1)
+head(table)
+```
+
+   
+---
+###(d)
+Show the table in your RMarkdown file by using the function knitr::kable().
+
+---
+
+```{r prelim_3d, error = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+kable(table, digits = 32) %>%  kable_styling()
+```
