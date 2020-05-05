@@ -3,12 +3,6 @@ title: "Final Project CS597"
 author: "Sagar Jain"
 date: "4 May 2020"
 output:
-  pdf_document:
-    toc: yes
-    toc_depth: '4'
-  word_document:
-    toc: yes
-    toc_depth: '4'
   html_document:
     code_folding: hide
     highlight: tango
@@ -16,12 +10,20 @@ output:
     theme: cosmo
     toc: yes
     toc_depth: 4
+  word_document:
+    toc: yes
+    toc_depth: '4'
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
 ---
 
 
 # Executive summary
 
-I wanted to do a kernel in which I would make a recommendation engine, and chose the [TMDB 5000 Movie Dataset](https://www.kaggle.com/tmdb/tmdb-movie-metadata/home) dataset. Kaggle has removed the original IMDB version of this dataset per a DMCA takedown request from IMDB, and replaced it with a similar set of movies from The Movie Database (TMDb).
+I have decided to work on a movie database which is a very diverse and challenging
+dataset which has numerical fields(budget, revenue, vote count) , textual fields(tagline,
+keyword) as well as datetime fields(release date). Chosen dataset is [TMDB 5000 Movie Dataset](https://www.kaggle.com/tmdb/tmdb-movie-metadata/home) dataset. Kaggle has removed the original IMDB version of this dataset per a DMCA takedown request from IMDB, and replaced it with a similar set of movies from The Movie Database (TMDb).
 
 
 # Preparing the data
@@ -521,5 +523,9 @@ company.df %>%
   formattable(align=c("l","c"),list(`profit (billion USD)`=color_bar('orange')))
 ```
 
+# Deployment
+Entire project is deployed on [GitHub](https://github.com/sagarjain1991/Data-Wrangling-and-Husbandry/tree/master/Final%20Project)
+with all the data files and acknowledgments.
 
+Thanks!!
 
