@@ -1,0 +1,116 @@
+---
+title: "HW9"
+author: "Sagar Jain"
+date: "4 April 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidytext)
+library(wordcloud)
+library(gutenbergr)
+library(lubridate)
+library(rvest)
+library(stringr)
+library(kableExtra)
+library(magrittr)
+library(tidyverse)
+
+library(choroplethr)
+library(choroplethrMaps)
+
+
+```
+
+## Answer 1 
+
+```{r Q1}
+
+covid19 <- "https://www.worldometers.info/coronavirus/country/us/" %>%
+  read_html() %>% html_nodes("table") %>% 
+  html_table(fill = TRUE) %>% .[[1]]
+
+
+
+covid19 <- covid19[-c(52,53,54,55,56,57,58),]
+covid19 <- covid19 %>% select("USAState","TotalCases","TotalDeaths")
+covid19$USAState <- str_to_lower(covid19$USAState)
+
+covid19$TotalCases <- as.double(gsub(",", "", covid19$TotalCases))
+covid19$TotalDeaths <- as.double(gsub(",", "", covid19$TotalDeaths))
+
+
+
+covid19_cases <- covid19 %>% select("USAState","TotalCases")
+covid19_deaths <- covid19 %>% select("USAState","TotalDeaths")
+
+names(covid19_cases) = c("region","value")
+names(covid19_deaths) = c("region","value")
+
+
+plot1<- state_choropleth(covid19_cases, 
+                 title  = "COVID19 cases across United States", 
+                 legend = "Cases")
+
+covid19_deaths[is.na(covid19_deaths)] <- 0
+plot2 <- state_choropleth(covid19_deaths, 
+                 title  = "COVID19 deaths across United States", 
+                 legend = "Deaths")
+
+require(gridExtra)
+
+grid.arrange(plot1, plot2, nrow=2)
+
+
+```
+
+## Answer 2 
+
+
+```{r answer2}
+
+covid19_countries <- "https://www.worldometers.info/coronavirus/" %>%
+  read_html() %>% html_nodes("table") %>% 
+  html_table(fill = TRUE) %>% .[[1]]
+
+
+
+
+covid19_countries <- covid19_countries %>% select("Country,Other","TotalCases")
+
+
+data(df_pop_country)
+
+#country_choropleth(df_pop_country, "2012 World Bank Populate Estimates")
+
+names(covid19_countries) = c("region","value")
+
+covid19_countries$region <- str_to_lower(covid19_countries$region)
+
+covid19_countries <- covid19_countries[-c(1,66,209),]
+
+covid19_countries$value <- as.double(gsub(",", "", covid19_countries$value))
+
+
+#removing the countries where number of cases are less than 200
+covid19_countries <- covid19_countries %>% filter(value>200)
+
+
+covid19_countries$region <- covid19_countries$region %>% 
+  str_replace_all("usa", "united states of america") %>%
+  str_replace_all("uk", "united kingdom") %>%
+  str_replace_all("uae", "united arab emirates")%>%
+  str_replace_all("s. korea", "south korea")%>%
+  str_replace_all("serbia", "republic of serbia")%>%
+  str_replace_all("czechia", "czech republic")%>%
+  str_replace_all("united kingdomraine", "ukraine")
+ 
+
+
+country_choropleth(covid19_countries, 
+                         title  = "COVID19 cases across World", 
+                         legend = "Cases",
+                   num_colors =8)
+
+```
+
