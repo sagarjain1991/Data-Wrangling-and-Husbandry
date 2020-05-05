@@ -1,0 +1,525 @@
+---
+title: "Final Project CS597"
+author: "Sagar Jain"
+date: "4 May 2020"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  word_document:
+    toc: yes
+    toc_depth: '4'
+  html_document:
+    code_folding: hide
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+---
+
+
+# Executive summary
+
+I wanted to do a kernel in which I would make a recommendation engine, and chose the [TMDB 5000 Movie Dataset](https://www.kaggle.com/tmdb/tmdb-movie-metadata/home) dataset. Kaggle has removed the original IMDB version of this dataset per a DMCA takedown request from IMDB, and replaced it with a similar set of movies from The Movie Database (TMDb).
+
+
+# Preparing the data
+
+In this dataset, two csv-files are provided: tmdb_5000_movies.csv and tmdb_5000_credits.csv.
+
+```{r, message=FALSE, warning=FALSE}
+#loading the libraries needed
+library(tidyverse)
+library(scales)
+library(jsonlite)
+library(knitr)
+library(kableExtra)
+library(ggrepel)
+library(gridExtra)
+library(lubridate)
+library(tidytext)
+library(wordcloud)
+```
+
+## The movies file
+
+The movies file contains 20 variables on 4,803 movies.
+
+```{r, warning=FALSE, message = FALSE}
+movies <- read_csv( "tmdb_5000_movies.csv", na="NA")
+credits <- read_csv( "tmdb_5000_credits.csv",  na="NA")
+
+glimpse(movies)
+```
+
+There are three occurences where two movies have the exact same title. When looking at the release date, we see that these are in fact different movies. This means that I have to be a little bit carefull and use the id as the unique identifier instead of the title. 
+
+Five columns are in the JSON format (genres, keywords, production_companies, production_countries, and spoken_languages). 
+
+As a start, I created dataframes for keywords and genres that can be joined with movies. Altogether, these 4803 movies have 12,160 movie-genre combinations, and 36,194 movie-keyword combinations.
+
+
+```{r, warning=FALSE}
+#The trick on how to do this is copied from kernel: https://www.kaggle.com/epfreed/tidydata-movie-dataset-exploration/report
+
+keywords <- movies %>%    
+  filter(nchar(keywords)>2) %>%         # fiter out blank keywords field
+  mutate(                               # create a new field 
+    js = lapply(keywords, fromJSON)     #   containing a LIST of keyword and value pairs
+  ) %>%                                 #   called id and name
+  unnest(js, .name_repair = "unique") %>%                        # turn each keyword/value pairs in the LIST into a row
+  select(id, title, keyword=name) %>%   # select the columns we want
+  mutate_if(is.character, factor)
+
+
+```
+
+```{r, warning=FALSE}
+
+genres <- movies %>%
+        filter(nchar(genres)>2) %>%
+        mutate(js = lapply(genres, fromJSON)) %>%
+        unnest(js, .name_repair = "unique") %>%
+        select(id, title, genres=name) %>%
+        mutate_if(is.character, factor)
+```
+
+### Joining the Top3 genres
+
+For genres, I assume that they are ranked in the order of importance. I only want to keep the three most important genres for each movie.
+
+```{r}
+kable(genres[1:14,])
+```
+
+----
+
+So if you look at the 4 movies above, this means that I don't want Science Fiction as a Top3 genre for Avatar, and also not keep Thriller a a genre for The Dark Night Rises. Below, you can see the result of this Top3 selection. This dataframe with a maximum of 3 genres per movie is joined with the movies dataframe.
+
+```{r}
+genres3 <- genres
+genres3$order <- 0
+genres3$order[1] <- 1
+
+
+for(i in 1:(nrow(genres3)-1)) {
+        if(genres3$id[i+1]!=genres3$id[i]){
+                genres3$order[i+1] <- 1
+        } else {genres3$order[i+1] <- (genres3$order[i])+1}
+}
+
+genres3 <- genres3 %>% filter(order < 4) %>%
+        spread(key=order, value=genres) %>%
+        rename(genre_1="1", genre_2="2", genre_3="3")
+
+movies <- left_join(movies, genres3 %>% select(id, genre_1, genre_2, genre_3), by="id")
+
+kable(genres3 %>% filter(id %in% c("19995", "285", "206647", "49026")))
+```
+
+----
+
+## The credits file (cast and crew members)
+
+This file only contains the movie_id, title, and 2 JSON columns. In the remainder of this section, I am creating two dataframes from these JSON columns (cast and crew), which can easily be joined with the movies dataframe.
+
+```{r}
+glimpse(credits)
+```
+
+### Joining the Top3 actors with movies
+
+Below you can see a glimpse of the new cast dataframe, and also the roles that Leonardo di Caprio played as an example.
+
+```{r, out.width="100%"}
+cast <- credits %>%
+        filter(nchar(cast)>2) %>%
+        mutate(js = lapply(cast, fromJSON)) %>%
+        unnest(js) %>%
+        select(-cast, -crew, -credit_id) %>%
+        rename(actor=name, movie_cast_id=cast_id, actor_id=id) %>%
+        mutate_if(is.character, factor)
+
+glimpse(cast)
+
+kable(cast %>% filter(actor=="Leonardo DiCaprio"))
+```
+
+----
+
+I noticed that the "order" for DiCaprio is mostly 0, 1, or 2. I suspect that this indicated that he had a leading role in the those movies. Let see what the order looks like when I look at the Titanic.
+
+```{r}
+kable(cast %>% filter(title=="Titanic") %>% select(title, order, actor, character) %>% arrange(order) %>% slice(1:10))
+```
+
+----
+
+This confirms that the order indicates the leading roles indeed. The Titanic cast consisted of 136 roles. As I am sure that people are mostly only interested in the actors who played the leading roles in a movie, I am only keeping the Top3 actors of each movie.
+
+Before I do so, I also want to spread them into a wide format. However, I have to solve an issue because some movies have multiple values for some orders.
+
+```{r}
+cast1 <- cast %>% count(actor) # for visualisation later on
+
+cast <- cast %>% filter(order %in% c(0, 1, 2)) %>% select(movie_id, title, order, actor)
+kable(cast %>% filter(movie_id==453))
+```
+
+----
+
+Below, you can see the result of my efforts. Besides two well-known movies, I am also displaying the one above as this shows that the issue has been solved too.
+
+```{r}
+cast$order[1] <- 0
+for (i in 1:(nrow(cast)-1)){
+        if(cast$movie_id[i+1]!=cast$movie_id[i]){
+                cast$order[i+1] <- 0
+        } else {cast$order[i+1] <- cast$order[i]+1}
+}
+
+cast <- cast %>% filter(order %in% c(0, 1, 2)) %>%
+#cast <- cast %>% spread(key=order, value=actor)
+        spread(key=order, value=actor) %>%
+        rename(actor_1="0", actor_2="1", actor_3="2")
+
+kable(cast %>% filter(title %in% c("Titanic", "Avatar", "A Beautiful Mind")))
+```
+
+----
+
+Finally, I am joining this dataframe with the Top3 actors for each movie to the movies dataframe.
+
+```{r}
+movies <- left_join(movies, cast %>% select(id=movie_id, actor_1, actor_2, actor_3), by = "id")
+```
+
+
+### Joining the Director with movies
+
+Below you can see a glimpse of the new crew dataframe, and also the crew-roles that James Cameron had as an example. As you can see, James Cameron had multiple roles in most movies in which he was involved.
+
+```{r}
+crew <- credits %>%
+        filter(nchar(crew)>2) %>%
+        mutate(js = lapply(crew, fromJSON)) %>%
+        unnest(js, .name_repair = "unique") %>%
+        select(-cast, -crew, -credit_id) %>%
+        rename(crew=name, crew_id=id) %>%
+        mutate_if(is.character, factor)
+
+glimpse(crew)
+
+kable(crew %>% filter(crew=="James Cameron"))
+```
+
+----
+
+Similar to only selecting the Top-cast, I think that people are mostly interested in the director and not so much in the rest of the crew. However, a bunch of movies have multiple people labeled as "Director" in the crew file (and 30 movies have no Director). Altogether, 4465 movies have one, unique director. I am joining only those with the movies dataframe.
+
+```{r}
+movies1Director <- crew %>% filter(job=="Director") %>% count(movie_id) %>% filter(n==1)
+
+movies <- left_join(movies, crew %>% filter(job=="Director" & movie_id %in% movies1Director$movie_id) %>% select(id=movie_id, director=crew), by = "id")
+```
+
+# Exploring the data
+
+## Numbers of votes
+
+### Histogram of number of votes
+
+The number of votes per movie ranges from 0 to 13,752
+
+```{r}
+range(movies$vote_count)
+```
+
+As there the tail of movies with more than 5,000 votes is hardly visible I am only displaying the histogram for movies with less than 5,000 votes.
+
+```{r}
+movies %>%
+        ggplot(aes(x=vote_count)) +
+        geom_histogram(fill="blue", binwidth = 50) +
+        scale_x_continuous(breaks=seq(0, 5000, by=500), label=comma) +
+        coord_cartesian(x=c(0, 5000)) +
+        labs(x="number of votes", y="number of movies")
+```
+
+### Movies with the highest number of votes
+
+When looking at the movies with most votes, we see that most of them had pretty good voting average too. The lowest vote_average within the Top20 movies with most votes is 6.8.
+
+```{r, out.width="100%"}
+movies  %>% top_n(20, wt=vote_count) %>%
+        ggplot(aes(x=reorder(title, vote_count), y=vote_count)) +
+        geom_bar(stat='identity', fill="blue") + coord_flip(y=c(0, 15000)) +
+        labs(x="", y="Number of votes") +
+        geom_text(aes(label=vote_count), hjust=-0.1, size=3) +
+        geom_text(aes(label=vote_average), y=1000, size=3, col="yellow")
+```
+
+## Vote average
+
+### Histogram of vote average
+
+As you can see, the vote_average is left skewed, and the skew is -1.96.
+
+```{r}
+movies %>%
+        ggplot(aes(x=vote_average)) +
+        geom_histogram(fill="blue", binwidth = 0.1) +
+        scale_x_continuous(breaks=seq(0, 10, by=1)) +
+        labs(x="vote average", y="number of movies")
+```
+
+
+
+However, we should realize that very high or very low vote_averages are generally based on small numbers of votes per movie. There are 62 movies with 0 votes and a vote_average of 0.0. 
+
+Below, I am filtering the movies on vote_average below 4.5 or above 8.5. As you can see, there are only 11 movies that "achieved" their vote_average in this range with at vote_count of at least 400.
+
+```{r}
+kable(movies %>% filter((vote_average<4.5|vote_average>8.5)& vote_count>=400) %>%
+              select(id, title, vote_average, vote_count) %>% arrange(vote_average))
+```
+
+----
+
+### Movies with the highest vote average
+
+In this secton, I am displaying the top20 of movies with the highest vote_average that received at least 250 votes (first column, yellow numbers).
+
+```{r, out.width="100%"}
+movies %>% filter(vote_count > 250) %>% top_n(20, wt=vote_average) %>%
+        ggplot(aes(x=reorder(title, vote_average), y=vote_average)) +
+        geom_bar(stat='identity', fill="blue") + coord_flip(y=c(0,10)) +
+        labs(x="", y="Voting Average") +
+        geom_text(aes(label=vote_average), hjust=-0.1, size=3) +
+        scale_y_continuous(breaks=seq(0, 10, by=1)) +
+        geom_text(aes(label=vote_count), y=0.4, size=3, col="yellow")
+```
+
+## Genres
+
+### Numbers of movies by genre
+
+Please be aware that a movie can be labeled with multiple genres.
+
+```{r}
+genres %>% group_by(genres) %>% count() %>%
+        ggplot(aes(x=reorder(genres, n), y=n)) +
+        geom_col(fill="blue") + coord_flip() +
+        labs(x="", y="Number of movies")
+```
+
+### Highest rated movies by genre
+
+In this section, I am displaying the Top10 of highest rated moves by genre. Again, I have only taken movies with at least 250 votes into consideration, and I am displaying all genres except the small genres "Foreign" and "TV movie".
+
+```{r, out.width="100%", fig.height=10}
+genres250 <- left_join(genres, movies %>% filter(vote_count > 250) %>% select(id, vote_average, vote_count, original_language, original_title), by = "id")
+genres250 <- genres250 %>% filter(!is.na(genres250$vote_average))
+genres250$title <- str_trunc(as.character(genres250$title), width = 50, side="right")
+genres250$title <- as.factor(genres250$title)
+
+genres250 %>% filter(!genres %in% c("Foreign", "TV Movie")) %>%
+        group_by(genres) %>% arrange(desc(vote_average)) %>% slice(1:10) %>%
+        ggplot(aes(x=reorder(title, vote_average), y=vote_average)) +
+        geom_col(aes(fill=genres), show.legend = FALSE) + coord_flip(y=c(6,8.5)) +
+        facet_wrap(~genres, scales = "free_y", ncol=2) +
+        labs(x="", y="") +
+        theme(axis.text.y = element_text(size=6))
+```
+
+## Popular actors and directors
+
+### Actors with most appearances
+
+Below, you can find the 20 actors with most appearances.
+
+```{r}
+cast1 %>% top_n(20, wt=n)%>%
+        ggplot(aes(x=reorder(actor, n), y=n)) +
+        geom_col(fill="blue") + coord_flip() +
+        labs(x="", y="Number of movies")
+```
+
+
+#### Top 10 profitable movies in TMDB
+
+```{r explr_material_q3c, echo=FALSE}
+
+library(formattable)
+movies <- read_csv( "tmdb_5000_movies.csv", na="NA")
+
+tmdb <- movies %>% 
+  select(id, release_date, original_title, genres, runtime, budget, revenue,tagline, production_companies,vote_average) %>% 
+  mutate(profit = revenue - budget) %>% 
+  rename("title" = "original_title", "score" = "vote_average")
+
+tmdb %>% 
+  select(title, profit) %>% 
+  drop_na(profit) %>% 
+  mutate(profit = format(profit, digits=9, decimal.mark=",", big.mark=",", small.mark=".", small.interval=3)) %>% 
+  arrange(desc(profit)) %>% 
+  top_n(10) %>% 
+  formattable(align=c("l","c"))
+```
+
+
+## Keywords
+
+### Number of distinct keywords in the database
+
+Altogether, TMBD uses 9,813 keywords to describe its movies.
+
+```{r}
+n_distinct(keywords$keyword)
+```
+
+### Most-used Keywords
+
+You can find the Top-20 most-used keywords below. As I did not know what "during the credits stinger" was, I looked it up. Apparently, such a stinger (after or during the credits) is an extra/special scene.
+
+```{r}
+keywords %>% count(keyword) %>% top_n(20, wt=n) %>%
+        ggplot(aes(x=reorder(keyword, n), y=n)) +
+        geom_col(fill="blue") + coord_flip() +
+        labs(x="", y="Number of movies")
+```
+
+Below, you can find some more keywords in a wordcloud.
+
+```{r}
+set.seed(2019)
+
+keywords_counts <- keywords %>% count(keyword)
+
+par(mfrow=c(1, 1),bg="grey97")
+wordcloud(keywords_counts$keyword, keywords_counts$n, max.words = 100, scale=c(2.0,.5), random.color = TRUE, random.order=FALSE, rot.per=0, colors=brewer.pal(9,"Set1"))
+```
+
+
+### Histogram of the number of keywords per movie
+
+There is a small number of outliers with lots of keywords.
+
+```{r, out.width="100%", fig.height=4}
+dummy <- keywords %>% count(id, title)
+dummy %>%
+        ggplot() +
+        geom_histogram(aes(x=n), breaks = seq(0, 100, by=2), fill="blue") +
+        scale_x_continuous(breaks = seq(0, 100, by=10)) +
+        labs(x="Number of keywords per movie. Binwidth=2", y= "Number of Movies")
+        
+```
+
+# Text analysis on tagline {.tabset .tabset-fade}
+
+Have you heard about these taglines? "Man is the warmest place to hide". "Family isn't a word. It's a sentence". These tagline are so memorable and precisely capture the spirit of the movie. 
+ 
+Let's explore what are high frequency words the movie marketers would like to use. Tidy the "tagline" column in TMDB dataset. 
+
+The following two barplots clearly shows that: 
+* "love", "life", "story", "world" and "family" are the most 5 frequent words in tagline.
+* "love story", "motion picture" and "romantic comedy" are the top 3 most frequent pair words in tagline.
+
+This supports that the most 2 popular movie genre are "Drama" and "Comedy" .
+
+```{r explr_tagline_tidy, echo=FALSE}
+movies.tagline <- tmdb %>% 
+  select(tagline) %>% filter(!is.na(tagline)) 
+```
+
+## High frequency words
+```{r explr_tagline_q1, echo=FALSE}
+movies.tagline %>% 
+  unnest_tokens(word, tagline) %>% 
+  anti_join(stop_words) %>%
+  count(word, sort = TRUE) %>% 
+  top_n(20) %>% 
+  ggplot(aes(reorder(word,n),n,fill=word)) +
+  geom_bar(stat = "identity") +
+  geom_label(aes(label=n)) + 
+  ggtitle("Top 20 High Frequency Word in Tagline") + 
+  theme(plot.title = element_text(hjust = 0.5), legend.position="none") + 
+  xlab(NULL) + coord_flip()
+```
+
+## High frequency bi-grams
+```{r explr_tagline_q2, echo=FALSE}
+movies.tagline %>% 
+  unnest_tokens(bigram, tagline, token = "ngrams", n = 2) %>% 
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word) %>% 
+  count(word1, word2, sort = TRUE) %>% 
+  filter(n>5) %>% 
+  unite("pairwords", c("word1", "word2"), sep = " ") %>% 
+  ggplot(aes(reorder(pairwords,n),n,fill=pairwords)) +
+  geom_bar(stat = "identity") +
+  geom_label(aes(label=n)) + 
+  ggtitle("High Frequency Bi-grams in Tagline") + 
+  theme(plot.title = element_text(hjust = 0.5), legend.position="none") + 
+  xlab(NULL) + coord_flip()
+```
+
+
+# Explore production companies {.tabset .tabset-fade}
+
+Covert "production_companies" into data.frame similar to genre.
+Use the formattable package to achieve a better visualization. 
+
+From the following three tables, I found an interesting phenomenon: 
+
+"Warner Bros.", "Universal Pictures", "Paramount Pictures" and "Twentieth Century Fox Film Corporation	222" have the most release and revenue. However, they are not listed in the top 10 profitable companies.
+
+I could provide a reasonable explanation for this: as independent films that become more popular,  you don't necessarily need big budgets to get big returns in the movie world. There are many good examples such as "Little Miss Sunshine", "The King's Speech"", "Lost in Thailand". 
+
+```{r explr_company_tidy, echo=FALSE}
+company.df <- movies %>% 
+  filter(nchar(production_companies)>2) %>% 
+  mutate(js=lapply(production_companies,fromJSON)) %>% 
+  unnest(js, .name_repair = "unique") %>% 
+  select(budget,revenue,company=name)
+```
+
+### Top 10 companies based on release
+```{r explr_company_q1, echo=FALSE}
+company.df %>% 
+  group_by(company) %>% 
+  summarise(count=n()) %>% 
+  arrange(desc(count)) %>% 
+  top_n(10) %>% 
+  formattable(align=c("l","c"),list(count=color_bar('lightgreen')))
+```
+
+
+### Top 10 companies based on revenue
+
+```{r explr_company_q2, echo=FALSE} 
+company.df %>% 
+  group_by(company) %>% 
+  summarise(`revenue (billion USD)` = format(sum(revenue, na.rm = FALSE)/1000000000, digits = 3, nsmall = 2, scientific = FALSE)) %>% 
+  arrange(desc(`revenue (billion USD)`)) %>% 
+  top_n(10) %>% 
+  formattable(align=c("l","c"),list(`revenue (million USD)`=color_bar('lightblue')))
+```
+
+
+###  Top 10 companies based on profit
+
+```{r explr_company_q3, echo=FALSE} 
+company.df %>% 
+  mutate(profit = revenue - budget) %>% 
+  group_by(company) %>% 
+  summarise(`profit (billion USD)` = format(sum(profit, na.rm = FALSE)/1000000000,digits = 3, scientific = FALSE)) %>% 
+  arrange(desc(`profit (billion USD)`)) %>% 
+  top_n(10) %>% 
+  formattable(align=c("l","c"),list(`profit (billion USD)`=color_bar('orange')))
+```
+
+
+
